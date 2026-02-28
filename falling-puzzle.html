@@ -143,7 +143,7 @@
     .cell {
       width: 38px;
       height: 38px;
-      border-radius: 7px;
+      border-radius: 50%;
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.05);
       position: relative;
@@ -247,6 +247,87 @@
     }
     .chain-anim { animation: chainPop 0.8s ease-out forwards; }
 
+    /* ===== Ranking ===== */
+    .name-input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #player-name-input {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(167,139,250,0.3);
+      border-radius: 8px;
+      color: #e0e0ff;
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      outline: none;
+      width: 130px;
+      font-family: inherit;
+    }
+    #player-name-input:focus { border-color: rgba(167,139,250,0.6); }
+    #player-name-input::placeholder { color: #4b5563; }
+
+    .btn-sm {
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #9ca3af;
+    }
+    .btn-sm:hover { background: rgba(255,255,255,0.1); opacity: 1; }
+
+    #gameover-input-section,
+    #gameover-ranking-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+    }
+
+    #ranking-table {
+      width: 100%;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .rank-header {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #4b5563;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 4px;
+      margin-bottom: 4px;
+    }
+
+    .rank-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 70px 36px;
+      gap: 4px;
+      padding: 5px 4px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      align-items: center;
+    }
+
+    .rank-row:not(.rank-header) { color: #9ca3af; }
+
+    .rank-row.rank-highlight {
+      background: rgba(167,139,250,0.15);
+      color: #e0e0ff;
+      font-weight: 600;
+    }
+
+    .rank-num { color: #6b7280; font-size: 0.75rem; }
+    .rank-row.rank-highlight .rank-num { color: #a78bfa; }
+    .rank-score { text-align: right; font-variant-numeric: tabular-nums; }
+    .rank-level { text-align: right; color: #6b7280; font-size: 0.75rem; }
+    .rank-name  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+
+    .overlay { overflow-y: auto; }
+
     /* Controls hint */
     .controls-hint {
       font-size: 0.65rem;
@@ -329,9 +410,22 @@
 
     <!-- Game over overlay -->
     <div class="overlay" id="gameover-overlay" style="display:none;">
-      <h2>ゲームオーバー</h2>
-      <p id="final-score-text"></p>
-      <button class="btn" id="restart-btn">もう一度</button>
+      <!-- Step 1: name input -->
+      <div id="gameover-input-section">
+        <h2>ゲームオーバー</h2>
+        <p id="final-score-text"></p>
+        <div class="name-input-row">
+          <input type="text" id="player-name-input" placeholder="名前を入力" maxlength="10">
+          <button class="btn" id="save-score-btn">登録</button>
+        </div>
+        <button class="btn btn-sm" id="skip-save-btn">スキップ</button>
+      </div>
+      <!-- Step 2: leaderboard -->
+      <div id="gameover-ranking-section" style="display:none;">
+        <h2>ランキング</h2>
+        <div id="ranking-table"></div>
+        <button class="btn" id="restart-btn">もう一度</button>
+      </div>
     </div>
   </div>
 
@@ -357,6 +451,13 @@
 const COLS = 6;
 const ROWS = 12;
 const COLORS = ['red', 'blue', 'yellow', 'green', 'purple'];
+const COLOR_CONFIG = {
+  red:    { hex: '#ef4444', glow: 'rgba(239,68,68,0.4)' },
+  blue:   { hex: '#3b82f6', glow: 'rgba(59,130,246,0.4)' },
+  yellow: { hex: '#eab308', glow: 'rgba(234,179,8,0.4)' },
+  green:  { hex: '#22c55e', glow: 'rgba(34,197,94,0.4)' },
+  purple: { hex: '#a855f7', glow: 'rgba(168,85,247,0.4)' },
+};
 const BASE_INTERVAL = 800;   // ms per row drop at level 1
 const LEVEL_INTERVAL = 60;   // ms reduction per level
 const GAME_DURATION  = 3 * 60 * 1000; // 3 minutes in ms
@@ -423,6 +524,8 @@ function setCell(r, c, color) {
   const el = getCell(r, c);
   if (!el) return;
   el.className = 'cell';
+  el.style.borderRadius = '';
+  el.style.boxShadow = '';
   if (color) {
     el.classList.add(`color-${color}`);
   }
@@ -439,28 +542,60 @@ function render() {
     }
   }
 
-  if (!currentPiece) return;
-
-  // Draw ghost
-  const ghostOffset = calcGhostOffset();
-  for (const b of currentPiece.blocks) {
-    const gr = b.r + ghostOffset;
-    const gc = b.c;
-    if (inBounds(gr, gc) && !grid[gr][gc]) {
-      const el = getCell(gr, gc);
-      if (el) {
-        el.className = `cell color-${b.color} ghost`;
+  if (currentPiece) {
+    // Draw ghost
+    const ghostOffset = calcGhostOffset();
+    for (const b of currentPiece.blocks) {
+      const gr = b.r + ghostOffset;
+      const gc = b.c;
+      if (inBounds(gr, gc) && !grid[gr][gc]) {
+        const el = getCell(gr, gc);
+        if (el) el.className = `cell color-${b.color} ghost`;
+      }
+    }
+    // Draw active piece
+    for (const b of currentPiece.blocks) {
+      if (inBounds(b.r, b.c)) {
+        const el = getCell(b.r, b.c);
+        if (el) el.className = `cell color-${b.color} active`;
       }
     }
   }
 
-  // Draw active piece
-  for (const b of currentPiece.blocks) {
-    if (inBounds(b.r, b.c)) {
-      const el = getCell(b.r, b.c);
-      if (el) {
-        el.className = `cell color-${b.color} active`;
-      }
+  renderConnections();
+}
+
+function renderConnections() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const color = grid[r][c];
+      if (!color) continue;
+      const el = getCell(r, c);
+      if (!el) continue;
+
+      const R = inBounds(r, c+1) && grid[r][c+1] === color;
+      const L = inBounds(r, c-1) && grid[r][c-1] === color;
+      const D = inBounds(r+1, c) && grid[r+1][c] === color;
+      const U = inBounds(r-1, c) && grid[r-1][c] === color;
+
+      // Flatten corners toward connected neighbors
+      const tl = (U || L) ? '15%' : '50%';
+      const tr = (U || R) ? '15%' : '50%';
+      const br = (D || R) ? '15%' : '50%';
+      const bl = (D || L) ? '15%' : '50%';
+      el.style.borderRadius = `${tl} ${tr} ${br} ${bl}`;
+
+      // Bridge the 2px gap with box-shadow
+      const cfg = COLOR_CONFIG[color];
+      const shadows = [
+        'inset 0 2px 4px rgba(255,255,255,0.25)',
+        `0 0 8px ${cfg.glow}`,
+      ];
+      if (R) shadows.push(`3px 0 0 0 ${cfg.hex}`);
+      if (L) shadows.push(`-3px 0 0 0 ${cfg.hex}`);
+      if (D) shadows.push(`0 3px 0 0 ${cfg.hex}`);
+      if (U) shadows.push(`0 -3px 0 0 ${cfg.hex}`);
+      el.style.boxShadow = shadows.join(', ');
     }
   }
 }
@@ -755,13 +890,71 @@ function showChain(n) {
 }
 
 // ===========================
+// Ranking (localStorage)
+// ===========================
+const STORAGE_KEY = 'falling_puzzle_ranking';
+const MAX_RANKING  = 10;
+
+function loadRanking() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveScore(name, s, lv) {
+  const ranking = loadRanking();
+  ranking.push({ name: name || 'NO NAME', score: s, level: lv, date: new Date().toLocaleDateString('ja-JP') });
+  ranking.sort((a, b) => b.score - a.score);
+  ranking.splice(MAX_RANKING);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(ranking));
+  return ranking;
+}
+
+function showLeaderboard(highlightScore) {
+  const ranking = loadRanking();
+  document.getElementById('gameover-input-section').style.display = 'none';
+  document.getElementById('gameover-ranking-section').style.display = 'flex';
+
+  const tableEl = document.getElementById('ranking-table');
+  tableEl.innerHTML = '';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'rank-row rank-header';
+  header.innerHTML = '<span>#</span><span>名前</span><span style="text-align:right">スコア</span><span style="text-align:right">Lv</span>';
+  tableEl.appendChild(header);
+
+  // Highlight only the first occurrence of the new score
+  let highlighted = false;
+  ranking.forEach((entry, i) => {
+    const isNew = !highlighted && highlightScore !== null && entry.score === highlightScore;
+    if (isNew) highlighted = true;
+    const row = document.createElement('div');
+    row.className = 'rank-row' + (isNew ? ' rank-highlight' : '');
+    row.innerHTML = `
+      <span class="rank-num">${i + 1}</span>
+      <span class="rank-name">${entry.name}</span>
+      <span class="rank-score">${entry.score.toLocaleString()}</span>
+      <span class="rank-level">Lv${entry.level}</span>
+    `;
+    tableEl.appendChild(row);
+  });
+
+  if (ranking.length === 0) {
+    tableEl.innerHTML += '<p style="color:#4b5563;font-size:0.8rem;margin-top:8px">まだ記録がありません</p>';
+  }
+}
+
+// ===========================
 // Game Over
 // ===========================
 function triggerGameOver(reason = 'stack') {
   gameRunning = false;
   if (animFrameId) cancelAnimationFrame(animFrameId);
   const reasonText = reason === 'time' ? '⏰ 時間切れ！' : '💥 積み上がり！';
-  finalScoreText.textContent = `${reasonText}\nスコア: ${score}  レベル: ${level}`;
+  finalScoreText.textContent = `${reasonText}　スコア: ${score}　Lv: ${level}`;
+  document.getElementById('gameover-input-section').style.display = 'flex';
+  document.getElementById('gameover-ranking-section').style.display = 'none';
+  document.getElementById('player-name-input').value = '';
   gameoverOverlay.style.display = 'flex';
 }
 
@@ -899,6 +1092,20 @@ document.addEventListener('touchend', e => {
 // ===========================
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('restart-btn').addEventListener('click', startGame);
+
+document.getElementById('save-score-btn').addEventListener('click', () => {
+  const name = document.getElementById('player-name-input').value.trim();
+  saveScore(name, score, level);
+  showLeaderboard(score);
+});
+
+document.getElementById('player-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('save-score-btn').click();
+});
+
+document.getElementById('skip-save-btn').addEventListener('click', () => {
+  showLeaderboard(null);
+});
 
 // ===========================
 // Boot
